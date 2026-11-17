@@ -220,6 +220,7 @@ reg → Q8.7 (3.16)	q = w if w < 0x8000, else q = w − 65536	Avoids implementat
 Q8.7 → reg (3.17)	w = q if q ≥ 0, else w = q + 65536	Result in 0..65535, so the cast is exact
 Q8.7 → mdegC (3.18)	(q·1000 ± 64) / 128	`
 mdegC → Q8.7 (3.19)	(m·128 ± 500) / 1000	Input pre-limited to `
+Q8.7 → float degC (3.21)	(float)q × 0.0078125f (2⁻⁷)	Exact in IEEE-754 binary32 (16-bit integer fits in 24-bit significand; 2⁻⁷ only shifts exponent)
 Worked examples (they match the host test vectors):
 
 Temperature	Q8.7	Register word	Decoded mdegC
@@ -248,6 +249,7 @@ SDD-ADT-2.9	adt7410_set_temp_setpoint	p_dev NULL → PARAM; range → PARAM; STA
 SDD-ADT-2.10	adt7410_get_temp_setpoint	NULL → PARAM; STATE; selector → PARAM	R16(reg)	Q8.7 → mdegC	8·P
 SDD-ADT-2.11	adt7410_set_hysteresis	NULL → PARAM; > 15 → PARAM; STATE	W8(0x0A)	—	5·P
 SDD-ADT-2.12	adt7410_get_hysteresis	NULL → PARAM; STATE	R8(0x0A)	bits [3:0]	7·P
+SDD-ADT-2.13	adt7410_read_temp_degc	NULL → PARAM; STATE	R16(0x00)	adt7410_read_temperature() + q8_7_to_degc() → *p_die_temp_degc	8·P
 Transaction legend: W8 = 2-byte write [reg, data] (HAL n = 2 → 5·P); W16 = 3-byte write [reg, MSB, LSB] (6·P); CMD = 1-byte write (4·P); R8 = write-read n = 1 (7·P); R16 = write-read n = 2, MSB first (8·P).
 
 Wall-clock note: P counts poll iterations, not time. Pick P so that P × t_poll is longer than the slowest single wait. The slowest wait is about 9 SCL clocks per byte, ≈ 90 µs at 100 kHz, plus any slave clock stretching.
@@ -294,6 +296,7 @@ SDD-ADT-3.17	q8_7_to_reg16()	Two's complement encode	§4.2, ASSERT on the int16 
 SDD-ADT-3.18	q8_7_to_mdegc()	Q8.7 → mdegC	§4.2
 SDD-ADT-3.19	mdegc_to_q8_7()	mdegC → Q8.7	§4.2
 SDD-ADT-3.20	reg16_to_sample()	Build adt7410_sample_t	switch(active_res): 13-bit masks 0xFFF8 and extracts flags; 16-bit takes the full word; default is DEFENSIVE → ERR_STATE. Builds a local struct and copies it to *p_sample only on OK
+SDD-ADT-3.21	q8_7_to_degc()	Q8.7 → float degC	(float)temp_q8_7 × 0.0078125f (§4.2); exact for both 13-bit and 16-bit modes
 Configuration encoding examples
 Input	Register 0x03
 16-bit, continuous, comparator, INT high, CT low, FQ 3	0x9A
@@ -341,7 +344,7 @@ LLR-IIC-003	SDD-IIC-2.2, 3.4, 3.5, 3.6, 3.8, 3.10, 3.11, 3.12	axi_iic_write_byte
 LLR-IIC-004	SDD-IIC-2.3, 3.7, 3.10, 3.11	axi_iic_write_read_bytes, pop_rx_fifo_byte, is_xfer_len_valid, validate_xfer_args
 LLR-ADT-001	SDD-ADT-1.1, 1.2, 1.12, 2.1, 2.2, 2.3, 3.3, 3.6, 3.8, 3.9	adt7410_status_t, adt7410_init_state_t, adt7410_dev_t, adt7410_init, adt7410_soft_reset, adt7410_read_id, map_iic_status, read_reg8, read_id_fields, is_slave_addr_valid
 LLR-ADT-002	SDD-ADT-1.3 … 1.7, 1.9, 2.4, 2.5, 2.7, 3.1, 3.2, 3.4, 3.6, 3.11, 3.12, 3.13	config enums, adt7410_config_t, adt7410_set_config, adt7410_get_config, adt7410_trigger_one_shot, op_mode_lut, fault_queue_lut, write_reg8, read_reg8, is_config_valid, config_to_reg, reg_to_config
-LLR-ADT-003	SDD-ADT-1.10, 1.11, 2.6, 2.8, 3.6, 3.7, 3.14, 3.16, 3.18, 3.20	adt7410_status_flags_t, adt7410_sample_t, adt7410_read_status, adt7410_read_temperature, read_reg8, read_reg16, reg_to_status_flags, reg16_to_q8_7, q8_7_to_mdegc, reg16_to_sample
+LLR-ADT-003	SDD-ADT-1.10, 1.11, 2.6, 2.8, 2.13, 3.6, 3.7, 3.14, 3.16, 3.18, 3.20, 3.21	adt7410_status_flags_t, adt7410_sample_t, adt7410_read_status, adt7410_read_temperature, adt7410_read_temp_degc, read_reg8, read_reg16, reg_to_status_flags, reg16_to_q8_7, q8_7_to_mdegc, q8_7_to_degc, reg16_to_sample
 LLR-ADT-004	SDD-ADT-1.8, 2.9, 2.10, 3.5, 3.7, 3.10, 3.15 … 3.19	adt7410_setpoint_id_t, adt7410_set_temp_setpoint, adt7410_get_temp_setpoint, write_reg16, read_reg16, is_temp_in_range, setpoint_to_reg, reg16_to_q8_7, q8_7_to_reg16, q8_7_to_mdegc, mdegc_to_q8_7
 LLR-ADT-005	SDD-ADT-2.11, 2.12, 3.4, 3.6	adt7410_set_hysteresis, adt7410_get_hysteresis, write_reg8, read_reg8
 Reverse check: every function and file-scope object in the four source files carries a @req / @design pair that appears in this matrix. There is no orphan code.

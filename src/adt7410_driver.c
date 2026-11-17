@@ -82,11 +82,12 @@
 #define ADT7410_REG16_SIGN_MASK     (0x8000U) /* Two's complement sign bit */
 #define ADT7410_REG16_MODULUS       (65536)   /* 2^16, int32_t arithmetic  */
 
-/* Fixed-point scaling: Q8.7 degC (degC = q / 128) <-> mdegC */
-#define ADT7410_Q7_LSB_PER_DEGC     (128)  /* 2^7 LSB per degC             */
-#define ADT7410_Q7_ROUND_HALF       (64)   /* 128 / 2, round half away     */
-#define ADT7410_MDEGC_PER_DEGC      (1000) /* milli-degC per degC          */
-#define ADT7410_MDEGC_ROUND_HALF    (500)  /* 1000 / 2, round half away    */
+/* Fixed-point scaling: Q8.7 degC (degC = q / 128) <-> mdegC / float degC */
+#define ADT7410_Q7_LSB_PER_DEGC     (128)        /* 2^7 LSB per degC        */
+#define ADT7410_Q7_ROUND_HALF       (64)         /* 128 / 2, round half     */
+#define ADT7410_MDEGC_PER_DEGC      (1000)       /* milli-degC per degC     */
+#define ADT7410_MDEGC_ROUND_HALF    (500)        /* 1000 / 2, round half    */
+#define ADT7410_DEGC_PER_Q8_7_LSB   (0.0078125f) /* 2^-7 degC per Q8.7 LSB  */
 
 /* I2C frame lengths in bytes: pointer byte + payload */
 #define ADT7410_CMD_LEN             (1U)   /* Pointer/command byte only    */
@@ -130,6 +131,7 @@ static int32_t reg16_to_q8_7(uint16_t reg_word);
 static uint16_t q8_7_to_reg16(int32_t temp_q8_7);
 static int32_t q8_7_to_mdegc(int32_t temp_q8_7);
 static int32_t mdegc_to_q8_7(int32_t temp_mdegc);
+static float q8_7_to_degc(int16_t temp_q8_7);
 static adt7410_status_t reg16_to_sample(uint16_t reg_word,
                                         adt7410_resolution_t active_res,
                                         adt7410_sample_t * p_sample);
@@ -483,6 +485,43 @@ adt7410_status_t adt7410_read_temperature(adt7410_dev_t const * p_dev,
         else
         {
             /* Communication failure propagated; p_sample untouched */
+        }
+    }
+
+    return result;
+}
+
+
+adt7410_status_t adt7410_read_temp_degc(adt7410_dev_t const * p_dev,
+                                        float * p_die_temp_degc)
+{
+    adt7410_status_t result = ADT7410_OK;
+    adt7410_sample_t sample =
+    {
+        .die_temp_mdegc   = 0,
+        .die_temp_q8_7    = 0,
+        .has_inline_flags = false,
+        .is_tcrit_active  = false,
+        .is_thigh_active  = false,
+        .is_tlow_active   = false
+    };
+
+    if ((NULL == p_dev)
+        || (NULL == p_die_temp_degc))
+    {
+        result = ADT7410_ERR_PARAM;
+    }
+    else
+    {
+        result = adt7410_read_temperature(p_dev, &sample);
+
+        if (ADT7410_OK == result)
+        {
+            *p_die_temp_degc = q8_7_to_degc(sample.die_temp_q8_7);
+        }
+        else
+        {
+            /* Error propagated; *p_die_temp_degc untouched */
         }
     }
 
@@ -1271,6 +1310,26 @@ static int32_t mdegc_to_q8_7(int32_t temp_mdegc)
     temp_q8_7 = temp_q8_7_x1000 / ADT7410_MDEGC_PER_DEGC;
 
     return temp_q8_7;
+}
+
+
+/**
+ * @brief       Convert a Q8.7 temperature to degrees Celsius (float).
+ * @req         LLR-ADT-003
+ * @design      SDD-ADT-3.21
+ * @param[in]   temp_q8_7  Temperature in Q8.7 degC, -32768..32767.
+ * @return      Temperature in degC, [-256.0f, +255.9921875f].
+ * @note        0.0078125f = 2^-7 is an exact power of two in IEEE-754
+ *              binary32 and any 16-bit integer fits in the 24-bit mantissa,
+ *              so the conversion is exact. Reentrant.
+ */
+static float q8_7_to_degc(int16_t temp_q8_7)
+{
+    /* Scale factor 2^-7 degC/LSB; int16_t -> float is exact (<= 16 bits). */
+    float const die_temp_degc =
+        (float)temp_q8_7 * ADT7410_DEGC_PER_Q8_7_LSB;
+
+    return die_temp_degc;
 }
 
 

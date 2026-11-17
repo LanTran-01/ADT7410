@@ -312,6 +312,25 @@ adt7410_status_t adt7410_read_temperature(adt7410_dev_t const * p_dev,
                                           adt7410_sample_t * p_sample);
 
 /**
+ * @brief       Read the die temperature directly in degrees Celsius (float).
+ * @req         LLR-ADT-003
+ * @design      SDD-ADT-2.13
+ * @param[in]   p_dev            Pointer to initialized ADT7410 device context.
+ * @param[out]  p_die_temp_degc  Pointer receiving temperature in degrees C,
+ *                               [-256.0f, +255.9921875f].
+ * @return      ADT7410_OK, ADT7410_ERR_PARAM, ADT7410_ERR_STATE,
+ *              or ADT7410_ERR_I2C_COMM.
+ * @note        Automatically handles both 13-bit (0.0625 degC/LSB, inline
+ *              flag bits [2:0] masked out) and 16-bit (0.0078125 degC/LSB)
+ *              resolutions based on p_dev->active_res, so callers do not
+ *              need to know the active resolution or scaling factor.
+ *              *p_die_temp_degc is written only on ADT7410_OK.
+ *              Not ISR-safe. Blocking (1 polled I2C transfer).
+ */
+adt7410_status_t adt7410_read_temp_degc(adt7410_dev_t const * p_dev,
+                                        float * p_die_temp_degc);
+
+/**
  * @brief       Write a temperature limit setpoint (THIGH, TLOW, or TCRIT).
  * @req         LLR-ADT-004
  * @design      SDD-ADT-2.9

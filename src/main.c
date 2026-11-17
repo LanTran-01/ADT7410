@@ -43,6 +43,7 @@
  */
 typedef struct
 {
+    float    last_die_temp_degc;  /* Latest valid temperature in degC      */
     int32_t  last_die_temp_mdegc; /* Latest valid temperature in mdegC     */
     int16_t  last_die_temp_q8_7;  /* Latest valid temperature in Q8.7 degC */
     uint32_t sample_count;        /* Number of valid samples acquired      */
@@ -262,31 +263,24 @@ static adt7410_status_t recover_bus_and_sensor(adt7410_event_mode_t event_mode)
 /**
  * @brief       Execute one non-hanging 10 ms polling step.
  * @req         LLR-ADT-003
- * @design      SDD-ADT-2.6, SDD-ADT-2.8
+ * @design      SDD-ADT-2.6, SDD-ADT-2.13
  * @return      ADT7410_OK or error status from status/temperature read.
- * @note        Checks Status Register (0x02) first; reads Temperature (0x00)
- *              only when RDY bit indicates a completed conversion, or reads
- *              the latest register value directly. Not ISR-safe. Blocking.
+ * @note        Uses adt7410_read_temp_degc() to read temperature directly
+ *              as a float in degC without needing an intermediate sample
+ *              struct or resolution-dependent scaling in the application.
+ *              Not ISR-safe. Blocking.
  *              WCET bound: O(15 * APP_IIC_TIMEOUT_POLLS).
  */
 static adt7410_status_t poll_sensor_once(void)
 {
     adt7410_status_t result = ADT7410_OK;
+    float die_temp_degc = 0.0f;
     adt7410_status_flags_t status_flags =
     {
         .is_not_ready  = true,
         .has_tcrit_flt = false,
         .has_thigh_flt = false,
         .has_tlow_flt  = false
-    };
-    adt7410_sample_t sample =
-    {
-        .die_temp_mdegc   = 0,
-        .die_temp_q8_7    = 0,
-        .has_inline_flags = false,
-        .is_tcrit_active  = false,
-        .is_thigh_active  = false,
-        .is_tlow_active   = false
     };
 
     result = adt7410_read_status(&g_sensor, &status_flags);
@@ -297,11 +291,10 @@ static adt7410_status_t poll_sensor_once(void)
         g_health_snapshot.is_thigh_tripped = status_flags.has_thigh_flt;
         g_health_snapshot.is_tlow_tripped  = status_flags.has_tlow_flt;
 
-        result = adt7410_read_temperature(&g_sensor, &sample);
+        result = adt7410_read_temp_degc(&g_sensor, &die_temp_degc);
         if (ADT7410_OK == result)
         {
-            g_health_snapshot.last_die_temp_mdegc = sample.die_temp_mdegc;
-            g_health_snapshot.last_die_temp_q8_7  = sample.die_temp_q8_7;
+            g_health_snapshot.last_die_temp_degc = die_temp_degc;
             g_health_snapshot.sample_count++;
         }
         else

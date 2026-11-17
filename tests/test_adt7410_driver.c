@@ -264,6 +264,7 @@ static void tc_adt_009(void)
     adt7410_config_t cfg;
     adt7410_status_flags_t flags;
     adt7410_sample_t sample;
+    float die_temp_degc = 0.0f;
     int32_t limit_mdegc = 0;
     uint8_t u8_a = 0U;
     uint8_t u8_b = 0U;
@@ -284,6 +285,9 @@ static void tc_adt_009(void)
     TH_CHECK(ADT7410_ERR_PARAM == adt7410_trigger_one_shot(NULL));
     TH_CHECK(ADT7410_ERR_PARAM == adt7410_read_temperature(NULL, &sample));
     TH_CHECK(ADT7410_ERR_PARAM == adt7410_read_temperature(&dev, NULL));
+    TH_CHECK(ADT7410_ERR_PARAM
+             == adt7410_read_temp_degc(NULL, &die_temp_degc));
+    TH_CHECK(ADT7410_ERR_PARAM == adt7410_read_temp_degc(&dev, NULL));
     TH_CHECK(ADT7410_ERR_PARAM
              == adt7410_set_temp_setpoint(NULL, ADT7410_SETPOINT_THIGH, 0));
     TH_CHECK(ADT7410_ERR_PARAM
@@ -306,6 +310,7 @@ static void expect_all_state_errors(void)
     adt7410_config_t cfg;
     adt7410_status_flags_t flags;
     adt7410_sample_t sample;
+    float die_temp_degc = 0.0f;
     int32_t limit_mdegc = 0;
     uint8_t u8_a = 0U;
     uint8_t u8_b = 0U;
@@ -318,6 +323,7 @@ static void expect_all_state_errors(void)
     TH_CHECK(ADT7410_ERR_STATE == adt7410_read_status(&dev, &flags));
     TH_CHECK(ADT7410_ERR_STATE == adt7410_trigger_one_shot(&dev));
     TH_CHECK(ADT7410_ERR_STATE == adt7410_read_temperature(&dev, &sample));
+    TH_CHECK(ADT7410_ERR_STATE == adt7410_read_temp_degc(&dev, &die_temp_degc));
     TH_CHECK(ADT7410_ERR_STATE
              == adt7410_set_temp_setpoint(&dev, ADT7410_SETPOINT_THIGH, 0));
     TH_CHECK(ADT7410_ERR_STATE
@@ -703,6 +709,60 @@ static void tc_adt_034(void)
 }
 
 
+static void tc_adt_035(void)
+{
+    static struct
+    {
+        uint16_t reg_word;
+        float    expected_degc;
+    } const vec16[] =
+    {
+        { 0x4B00U,  150.0f       },
+        { 0x0C80U,   25.0f       },
+        { 0x0001U,    0.0078125f },
+        { 0x0000U,    0.0f       },
+        { 0xFFFFU,   -0.0078125f },
+        { 0xF380U,  -25.0f       },
+        { 0xE480U,  -55.0f       }
+    };
+    float die_temp_degc = 0.0f;
+    adt7410_status_t status;
+    size_t i;
+
+    th_begin("TC-ADT-035", "LLR-ADT-003.8",
+             "read_temp_degc float output in 16-bit, 13-bit, and fault paths");
+    setup_ready(ADT7410_RES_16BIT);
+    for (i = 0U; i < (sizeof(vec16) / sizeof(vec16[0])); i++)
+    {
+        set_temp_reg(vec16[i].reg_word);
+        status = adt7410_read_temp_degc(&dev, &die_temp_degc);
+        TH_CHECK(ADT7410_OK == status);
+        TH_CHECK(fabs((double)die_temp_degc - (double)vec16[i].expected_degc)
+                 <= 1.0e-7);
+    }
+
+    /* 13-bit mode: inline flag bits [2:0] must be masked out automatically */
+    setup_ready(ADT7410_RES_13BIT);
+    set_temp_reg(0x0C87U); /* +25.0 degC with all 3 inline flags set */
+    status = adt7410_read_temp_degc(&dev, &die_temp_degc);
+    TH_CHECK(ADT7410_OK == status);
+    TH_CHECK(fabs((double)die_temp_degc - 25.0) <= 1.0e-7);
+
+    set_temp_reg(0x000FU); /* +0.0625 degC (1 LSB in 13-bit) + 3 flags */
+    status = adt7410_read_temp_degc(&dev, &die_temp_degc);
+    TH_CHECK(ADT7410_OK == status);
+    TH_CHECK(fabs((double)die_temp_degc - 0.0625) <= 1.0e-7);
+
+    /* Output untouched on I2C failure */
+    die_temp_degc = 42.5f;
+    g_mock.fail_on_xfer = g_mock.xfer_count + 1U;
+    status = adt7410_read_temp_degc(&dev, &die_temp_degc);
+    TH_CHECK(ADT7410_ERR_I2C_COMM == status);
+    TH_CHECK(fabs((double)die_temp_degc - 42.5) <= 1.0e-7);
+    th_end();
+}
+
+
 /* ===================== LLR-ADT-004: setpoints ========================== */
 
 static void tc_adt_040(void)
@@ -961,6 +1021,7 @@ int main(void)
     tc_adt_032();
     tc_adt_033();
     tc_adt_034();
+    tc_adt_035();
     tc_adt_040();
     tc_adt_041();
     tc_adt_042();

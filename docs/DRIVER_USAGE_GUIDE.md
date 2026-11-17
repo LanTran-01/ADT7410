@@ -103,11 +103,31 @@ status = adt7410_set_hysteresis(&sensor, 5U);
 *(Tùy chọn)* Có thể đọc ngược lại bằng `adt7410_get_temp_setpoint()` và
 `adt7410_get_hysteresis()` để xác nhận cấu hình trên phần cứng.
 
-### Bước 4: Đọc nhiệt độ và cờ trạng thái (`adt7410_read_temperature`, `adt7410_read_status`)
+### Bước 4: Đọc nhiệt độ và cờ trạng thái (`adt7410_read_temp_degc`, `adt7410_read_temperature`, `adt7410_read_status`)
 
-#### A. Chế độ Continuous (`ADT7410_MODE_CONTINUOUS`) hoặc 1 SPS (`ADT7410_MODE_1SPS`)
+#### A. Cách 1 (Khuyến nghị cho tầng ứng dụng): Đọc trực tiếp ra `float` (`adt7410_read_temp_degc`)
 
-Gọi trực tiếp `adt7410_read_temperature(&sensor, &sample)`:
+Nếu tầng ứng dụng chỉ cần giá trị nhiệt độ theo **độ C (`float`)** mà không muốn
+tự xử lý cấu trúc trung gian hay hệ số chia theo độ phân giải 13-bit / 16-bit,
+gọi trực tiếp:
+
+```c
+float die_temp_degc = 0.0f;
+
+status = adt7410_read_temp_degc(&sensor, &die_temp_degc);
+```
+
+- Driver tự động kiểm tra `sensor.active_res`:
+  - Nếu đang ở **13-bit (`0.0625 °C/LSB`)**, driver tự động che (mask) bỏ 3 bit cờ
+    `[2:0]` trước khi quy đổi sang độ C.
+  - Nếu đang ở **16-bit (`0.0078125 °C/LSB`)**, driver lấy toàn bộ 16 bit.
+- Phép nhân với `2^-7` (`0.0078125f`) là lũy thừa của 2 nên **hoàn toàn chính xác
+  tuyệt đối trong chuẩn IEEE-754 `float`** (không có sai số làm tròn).
+
+#### B. Cách 2: Đọc cấu trúc chi tiết số nguyên (`adt7410_read_temperature`) ở chế độ Continuous / 1 SPS
+
+Gọi `adt7410_read_temperature(&sensor, &sample)` khi cần lấy đồng thời `mdegC`,
+`Q8.7` và 3 cờ cảnh báo inline của chế độ 13-bit:
 - `sample.die_temp_mdegc`: Nhiệt độ tính bằng milli-độ C (`1/1000 °C`).
 - `sample.die_temp_q8_7`: Giá trị fixed-point `Q8.7` (`°C = die_temp_q8_7 / 128`).
 - **Khác biệt giữa chế độ 13-bit và 16-bit**:

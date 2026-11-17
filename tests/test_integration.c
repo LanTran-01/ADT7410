@@ -28,10 +28,11 @@ static void tc_int_001(void)
     axi_iic_dev_t iic;
     adt7410_dev_t dev;
     adt7410_sample_t sample;
+    float die_temp_degc = 0.0f;
     adt7410_status_t status;
 
-    th_begin("TC-INT-001", "LLR-ADT-001.5,001.6,003.1,IIC-004",
-             "init + read_temperature through the real HAL");
+    th_begin("TC-INT-001", "LLR-ADT-001.5,001.6,003.1,003.8,IIC-004",
+             "init + read_temperature / read_temp_degc through the real HAL");
     rm_reset();
     TH_CHECK(AXI_IIC_OK == axi_iic_init(&iic, rm_base(), 16U));
     rm_regs[RM_SR] = RM_SR_TX_EMPTY;
@@ -49,6 +50,10 @@ static void tc_int_001(void)
     TH_CHECK(-13365 == sample.die_temp_q8_7);
     TH_CHECK(-104414 == sample.die_temp_mdegc);
     TH_CHECK((RM_DYN_STOP | 2U) == rm_regs[RM_TX_FIFO]);
+
+    status = adt7410_read_temp_degc(&dev, &die_temp_degc);
+    TH_CHECK(ADT7410_OK == status);
+    TH_CHECK((-104.415f < die_temp_degc) && (-104.414f > die_temp_degc));
     th_end();
 }
 

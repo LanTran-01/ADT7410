@@ -110,7 +110,7 @@ LLR-ADT-003 — Temperature and status acquisition
 Field	Value
 Parent HLR	HLR-TBD
 Derived	Partly (003.6 is derived)
-Design	SDD-ADT-1.10, 1.11, 2.6, 2.8, 3.6, 3.7, 3.14, 3.16, 3.18, 3.20
+Design	SDD-ADT-1.10, 1.11, 2.6, 2.8, 2.13, 3.6, 3.7, 3.14, 3.16, 3.18, 3.20, 3.21
 Clause	Requirement	Method
 003.1	adt7410_read_temperature() shall read two bytes starting at register 0x00 and assemble them MSB first.	T
 003.2	When active_res is 13-bit, the driver shall take the temperature from bits [15:3] (bits [2:0] = 0). It shall set has_inline_flags = true, is_tcrit_active = bit 2, is_thigh_active = bit 1, is_tlow_active = bit 0.	T
@@ -119,6 +119,7 @@ Clause	Requirement	Method
 003.5	adt7410_read_temperature() shall write *p_sample only when it returns ADT7410_OK.	T
 003.6	When active_res holds a value other than 13-bit or 16-bit, adt7410_read_temperature() shall return ADT7410_ERR_STATE and leave *p_sample unchanged. (Derived: defensive SEU handling.)	T (fault injection)
 003.7	adt7410_read_status() shall read register 0x02 and decode: is_not_ready = bit 7, has_tcrit_flt = bit 6, has_thigh_flt = bit 5, has_tlow_flt = bit 4.	T
+003.8	adt7410_read_temp_degc() shall read and decode the temperature according to active_res per 003.1–003.4 (masking inline flag bits [2:0] in 13-bit mode) and write *p_die_temp_degc = (float)die_temp_q8_7 × 0.0078125f (1/128 degC/LSB) only when it returns ADT7410_OK.	T, A
 LLR-ADT-004 — Temperature limit setpoints (THIGH, TLOW, TCRIT)
 Field	Value
 Parent HLR	HLR-TBD
