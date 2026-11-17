@@ -18,16 +18,16 @@ and BARR-C:2018 compliance.
   - `tests/test_harness.h` — Minimal host test harness (`TH_CHECK`, `TC-...` tracing).
   - `tests/regmodel.h` — Static RAM MMIO register model for testing `axi_iic_hal.c`.
   - `tests/mock_axi_iic.h`, `tests/mock_axi_iic.c` — Mock AXI IIC HAL emulating ADT7410 registers.
-  - `tests/test_axi_iic_hal.c`, `tests/test_adt7410_driver.c`, `tests/test_integration.c`.
+  - `tests/test_axi_iic_hal.c`, `tests/test_adt7410_driver.c`, `tests/test_integration.c`, `tests/test_app.c` (reference application, `main()` renamed to `app_main()` in the test build only).
   - `tests/run_tests.sh` (Bash/Linux/MSYS2/WSL) and `tests/run_tests.ps1` (Windows PowerShell).
 - `docs/` — Requirements, design, coding rules, and verification documentation:
   - `docs/C_rules_v3_addDO178C.md` — Full unified C coding standard (also split under `.agents/rules/` so no rule file exceeds Antigravity's 24 KB cap).
-  - `docs/LLR_ADT7410_AXI_IIC.md` — Low-Level Requirements (`LLR-IIC-001..004`, `LLR-ADT-001..005`).
+  - `docs/LLR_ADT7410_AXI_IIC.md` — Low-Level Requirements (`LLR-IIC-001..004`, `LLR-ADT-001..005`, `LLR-APP-001..005`).
   - `docs/SDD_ADT7410_AXI_IIC.md` — Software Design Description (`SDD-IIC-x.y`, `SDD-ADT-x.y`), stack table, MISRA deviation log (`DEV-01`), traceability matrix.
   - `docs/HLR_ADT7410_AXI_IIC.md` — Draft HLR placeholder (see Open Item `OI-01`).
   - `docs/DRIVER_USAGE_GUIDE.md` — Step-by-step integration & API usage guide for the Application / Health Monitor layer.
-  - `docs/test_report.md` — Host verification template and register-model limits (§6).
-  - `docs/OPEN_ITEMS.md` — Consolidated open items (`OI-01`..`OI-06`).
+  - `docs/test_report.md` — Host verification results (static checks, test suites, coverage, LLR matrix) and register-model limits.
+  - `docs/OPEN_ITEMS.md` — Consolidated open items (`OI-01`..`OI-08`).
 - `AI_AGENT_GUIDE.md` — Master onboarding & 6-axis cross-check playbook for external/review AI agents.
 - `.agents/` — Antigravity IDE rules (`.agents/rules/`) and workflow skills (`.agents/skills/`).
 - `.vscode/` — IDE settings, IntelliSense (`c_cpp_properties.json`), build/test tasks, and debug configs.
@@ -59,9 +59,11 @@ Never violate these core constraints in `include/` and `src/`:
 ## 4. Known Open Items (Do Not Silently Alter)
 
 See `docs/OPEN_ITEMS.md` before changing related behavior:
-- `OI-01`: Parent HLR links (`HLR-TBD` in LLR; draft placeholder in `docs/HLR_ADT7410_AXI_IIC.md`).
+- `OI-01`: HLR is a draft placeholder (`docs/HLR_ADT7410_AXI_IIC.md`); LLR groups are linked to proposed HLR IDs, approval pending.
 - `OI-02`: `ADT7410_ERR_NOT_READY` is defined in `adt7410_status_t` but currently unused.
 - `OI-03`: Confirm `ISR.TX_ERR` behavior at end of master receive on hardware.
 - `OI-04`: Regenerate `.su` stack usage and WCET figures with the target ARM cross-compiler.
 - `OI-05`: `ASSERT(expr)` under `DEBUG_BUILD` currently has an empty `/* trap */` body pending project fault handler hookup.
 - `OI-06`: Verify cited `[ADT7410]` and `[PG090]` table/page numbers against configuration-controlled datasheet revisions.
+- `OI-07`: Submit derived requirements to the system safety assessment.
+- `OI-08`: Measure `t_poll` on target and fix `APP_IIC_TIMEOUT_POLLS` vs the 10 ms period (`SDD-APP-4`).

@@ -32,13 +32,17 @@ test:
 	$(CC) $(TEST_FLAGS) --coverage $(TEST_DIR)/test_adt7410_driver.c $(OUT_DIR)/adt7410_driver.o $(OUT_DIR)/mock_axi_iic.o -lm -o $(OUT_DIR)/test_adt7410_driver
 	$(CC) $(TEST_FLAGS) --coverage $(TEST_DIR)/test_axi_iic_hal.c $(OUT_DIR)/axi_iic_hal.o -o $(OUT_DIR)/test_axi_iic_hal
 	$(CC) $(TEST_FLAGS) --coverage $(TEST_DIR)/test_integration.c $(OUT_DIR)/adt7410_driver.o $(OUT_DIR)/axi_iic_hal.o -o $(OUT_DIR)/test_integration
+	$(CC) $(TEST_FLAGS) --coverage -Dmain=app_main -c $(SRC_DIR)/main.c -o $(OUT_DIR)/main.o
+	$(CC) $(TEST_FLAGS) --coverage $(TEST_DIR)/test_app.c $(OUT_DIR)/main.o $(OUT_DIR)/adt7410_driver.o $(OUT_DIR)/mock_axi_iic.o -o $(OUT_DIR)/test_app
 	$(OUT_DIR)/test_adt7410_driver
 	$(OUT_DIR)/test_axi_iic_hal
 	$(OUT_DIR)/test_integration
+	$(OUT_DIR)/test_app
 
 coverage: test
 	gcov -b -c -o $(OUT_DIR) $(SRC_DIR)/axi_iic_hal.c
 	gcov -b -c -o $(OUT_DIR) $(SRC_DIR)/adt7410_driver.c
+	gcov -b -c -o $(OUT_DIR) $(SRC_DIR)/main.c
 
 clean:
 	rm -rf $(OUT_DIR) build *.gcov

@@ -62,8 +62,12 @@ static mock_xfer_t * log_new_xfer(void)
 static axi_iic_status_t injected_status(void)
 {
     axi_iic_status_t status = AXI_IIC_OK;
+    uint32_t const count = (0U == g_mock.fail_xfer_count)
+                           ? 1U : g_mock.fail_xfer_count;
 
-    if (g_mock.fail_on_xfer == g_mock.xfer_count)
+    if ((0U != g_mock.fail_on_xfer)
+        && (g_mock.xfer_count >= g_mock.fail_on_xfer)
+        && (g_mock.xfer_count < (g_mock.fail_on_xfer + count)))
     {
         status = g_mock.fail_status;
     }
@@ -134,6 +138,11 @@ axi_iic_status_t axi_iic_write_read_bytes(axi_iic_dev_t const * p_dev,
     p_xfer->slave_addr_7b = slave_addr_7b;
     p_xfer->reg_addr = reg_addr;
     p_xfer->rx_len_bytes = rx_len_bytes;
+
+    if (g_mock.is_fail_reg_enabled && (reg_addr == g_mock.fail_reg_addr))
+    {
+        status = g_mock.fail_status;
+    }
 
     if (AXI_IIC_OK != status)
     {

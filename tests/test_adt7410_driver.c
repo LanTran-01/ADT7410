@@ -765,6 +765,23 @@ static void tc_adt_035(void)
 
 /* ===================== LLR-ADT-004: setpoints ========================== */
 
+static void tc_adt_036(void)
+{
+    float die_temp_degc = 42.5f;
+    adt7410_status_t status;
+
+    th_begin("TC-ADT-036", "LLR-ADT-003.6,003.8",
+             "read_temp_degc: corrupted active_res -> STATE, untouched");
+    setup_ready(ADT7410_RES_16BIT);
+    set_temp_reg(0x0C80U);
+    dev.active_res = (adt7410_resolution_t)2; /* SEU fault injection */
+    status = adt7410_read_temp_degc(&dev, &die_temp_degc);
+    TH_CHECK(ADT7410_ERR_STATE == status);
+    TH_CHECK(fabs((double)die_temp_degc - 42.5) <= 1.0e-7);
+    th_end();
+}
+
+
 static void tc_adt_040(void)
 {
     th_begin("TC-ADT-040", "LLR-ADT-004.1",
@@ -1022,6 +1039,7 @@ int main(void)
     tc_adt_033();
     tc_adt_034();
     tc_adt_035();
+    tc_adt_036();
     tc_adt_040();
     tc_adt_041();
     tc_adt_042();
