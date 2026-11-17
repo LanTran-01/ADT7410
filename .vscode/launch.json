@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug test_adt7410_driver",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/tests/out/test_adt7410_driver.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "preLaunchTask": "Run Static Checks, Tests & Coverage (PowerShell)"
+    },
+    {
+      "name": "Debug test_axi_iic_hal",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/tests/out/test_axi_iic_hal.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "preLaunchTask": "Run Static Checks, Tests & Coverage (PowerShell)"
+    },
+    {
+      "name": "Debug test_integration",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/tests/out/test_integration.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "preLaunchTask": "Run Static Checks, Tests & Coverage (PowerShell)"
+    }
+  ]
+}

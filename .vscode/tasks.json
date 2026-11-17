@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Format Check (PowerShell, No GCC Required)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/tests/run_tests.ps1",
+        "-FormatOnly"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Run Static Checks, Tests & Coverage (PowerShell)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/tests/run_tests.ps1"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Run Static Checks, Tests & Coverage (Bash)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/tests/run_tests.sh"
+      ],
+      "group": "test",
+      "problemMatcher": "$gcc",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "CMake: Configure & Build",
+      "type": "shell",
+      "command": "cmake -S . -B build -DENABLE_COVERAGE=ON && cmake --build build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$gcc",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "CMake: Run CTest",
+      "type": "shell",
+      "command": "ctest --test-dir build --output-on-failure",
+      "dependsOn": "CMake: Configure & Build",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

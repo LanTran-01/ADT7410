@@ -1,0 +1,47 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "Win32-GCC-C99",
+      "includePath": [
+        "${workspaceFolder}/include",
+        "${workspaceFolder}/tests"
+      ],
+      "defines": [],
+      "cStandard": "c99",
+      "intelliSenseMode": "windows-gcc-x64",
+      "compilerArgs": [
+        "-std=c99",
+        "-pedantic-errors",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wconversion",
+        "-Wsign-conversion",
+        "-Wshadow"
+      ]
+    },
+    {
+      "name": "Win32-GCC-C99-DebugBuild",
+      "includePath": [
+        "${workspaceFolder}/include",
+        "${workspaceFolder}/tests"
+      ],
+      "defines": [
+        "DEBUG_BUILD"
+      ],
+      "cStandard": "c99",
+      "intelliSenseMode": "windows-gcc-x64"
+    },
+    {
+      "name": "Linux-GCC-C99",
+      "includePath": [
+        "${workspaceFolder}/include",
+        "${workspaceFolder}/tests"
+      ],
+      "defines": [],
+      "cStandard": "c99",
+      "intelliSenseMode": "linux-gcc-x64"
+    }
+  ]
+}

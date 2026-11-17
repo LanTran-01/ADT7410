@@ -1,0 +1,21 @@
+# Build & coverage outputs
+tests/out/
+build/
+cmake-build-*/
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.out
+*.su
+*.gcno
+*.gcda
+*.gcov
+*.log
+compile_commands.json
+
+# IDE / OS temporary files
+.vscode/*.log
+.DS_Store
+Thumbs.db
