@@ -28,6 +28,7 @@ and BARR-C:2018 compliance.
   - `docs/DRIVER_USAGE_GUIDE.md` — Step-by-step integration & API usage guide for the Application / Health Monitor layer.
   - `docs/test_report.md` — Host verification template and register-model limits (§6).
   - `docs/OPEN_ITEMS.md` — Consolidated open items (`OI-01`..`OI-06`).
+- `AI_AGENT_GUIDE.md` — Master onboarding & 6-axis cross-check playbook for external/review AI agents.
 - `.agents/` — Antigravity IDE rules (`.agents/rules/`) and workflow skills (`.agents/skills/`).
 - `.vscode/` — IDE settings, IntelliSense (`c_cpp_properties.json`), build/test tasks, and debug configs.
 

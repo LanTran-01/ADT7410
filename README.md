@@ -46,6 +46,7 @@ Layer (HAL), designed to meet **MISRA C:2012**, **BARR-C:2018**, and
 - `.vscode/` — IDE settings, IntelliSense (`c_cpp_properties.json`), build/test
   tasks, and debug launch configurations.
 - `GEMINI.md` — Root Antigravity IDE instructions.
+- `AI_AGENT_GUIDE.md` — Master guide & 6-axis cross-check protocol for AI agents reviewing or auditing this codebase.
 
 ## Prerequisites
 
