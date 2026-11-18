@@ -74,11 +74,16 @@ gcc $TEST_FLAGS --coverage "$TEST_DIR/test_axi_iic_hal.c" \
     axi_iic_hal.o -o test_axi_iic_hal || exit 1
 gcc $TEST_FLAGS --coverage "$TEST_DIR/test_integration.c" \
     adt7410_driver.o axi_iic_hal.o -o test_integration || exit 1
+# Application under test: main() renamed to app_main() in the TEST build only
+gcc $TEST_FLAGS --coverage -Dmain=app_main -c "$SRC_DIR/main.c" -o main.o \
+    || exit 1
+gcc $TEST_FLAGS --coverage "$TEST_DIR/test_app.c" \
+    main.o adt7410_driver.o mock_axi_iic.o -o test_app || exit 1
 echo "[PASS] build"
 
 echo
 echo "=== 3. Run test suites ==="
-for t in test_adt7410_driver test_axi_iic_hal test_integration; do
+for t in test_adt7410_driver test_axi_iic_hal test_integration test_app; do
     ./"$t" > "$t.log" 2>&1
     rc=$?
     grep -E '^\[(PASS|FAIL)\]|FAIL ' "$t.log"
@@ -88,7 +93,7 @@ done
 
 echo
 echo "=== 4. Structural coverage (gcov: statement + branch) ==="
-for src in $SOURCES; do
+for src in $STATIC_SOURCES; do
     gcov -f -o . "$SRC_DIR/$src" 2>/dev/null \
         | awk '/^Function/ {fn=$2; next}
                /^File/ {fn=""; next}
@@ -103,7 +108,7 @@ echo
 echo "=== 5. Supplementary static analysis (clang-tidy, if installed) ==="
 if command -v clang-tidy > /dev/null 2>&1; then
     checks='-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,readability-braces-around-statements,readability-else-after-return,-misc-include-cleaner,-bugprone-easily-swappable-parameters'
-    for src in $SOURCES; do
+    for src in $STATIC_SOURCES; do
         clang-tidy -checks="$checks" "$SRC_DIR/$src" -- -std=c99 \
             -I"$INC_DIR" > "tidy_${src%.c}.log" 2>&1
         n=$(grep -c 'warning:' "tidy_${src%.c}.log")

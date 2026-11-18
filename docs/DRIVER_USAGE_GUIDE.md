@@ -142,11 +142,14 @@ Gọi `adt7410_read_temperature(&sensor, &sample)` khi cần lấy đồng thờ
 > `ADT7410_EVENT_INTERRUPT`, lệnh gọi `adt7410_read_status()` sẽ xóa các cờ
 > chốt lỗi `TLOW`/`THIGH`/`TCRIT` (Datasheet tr. 14).
 
-#### B. Chế độ One-Shot tiết kiệm năng lượng (`ADT7410_MODE_ONE_SHOT`)
+#### C. Chế độ One-Shot tiết kiệm năng lượng (`ADT7410_MODE_ONE_SHOT`)
 
 1. Gọi `adt7410_trigger_one_shot(&sensor)`.
-2. **Bắt buộc chờ tối thiểu `240 ms`** (theo Datasheet §ONE-SHOT MODE, tr. 10)
-   hoặc kiểm tra `adt7410_read_status()` cho tới khi `flags.is_not_ready == false`.
+2. **Bắt buộc chờ tối thiểu `240 ms`** (theo Datasheet §ONE-SHOT MODE, tr. 10),
+   hoặc đọc `adt7410_read_status()` định kỳ cho tới khi
+   `flags.is_not_ready == false`. Vòng chờ này **phải có giới hạn**: dùng một
+   hằng số đặt tên cho số lần thử tối đa (ví dụ `APP_ONE_SHOT_MAX_CHECKS`) và
+   báo lỗi khi hết lượt (C Rules §6, WCET).
 3. Gọi `adt7410_read_temperature(&sensor, &sample)` để lấy mẫu.
 
 ### Bước 5: Đặt lại bằng phần mềm (`adt7410_soft_reset`) khi cần phục hồi
@@ -176,8 +179,15 @@ Nếu cần khôi phục cảm biến về mặc định phần cứng:
 
 ## 4. Ví Dụ Tích Hợp Hoàn Chỉnh (Tuân Thủ C99 / MISRA / DO-178C)
 
+Ví dụ dưới đây biên dịch sạch với bộ cờ nghiêm ngặt của dự án
+(`-std=c99 -pedantic-errors -Werror -Wconversion -Wmissing-prototypes ...`).
+Khi đưa vào dự án thật, bổ sung khối Doxygen với `@req` / `@design` cho
+từng hàm (C Rules §4). Ứng dụng tham chiếu đầy đủ, có truy vết, nằm ở
+`src/main.c` (`LLR-APP-xxx`, `SDD-APP-x.y`).
+
 ```c
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "adt7410_driver.h"
@@ -192,10 +202,16 @@ Nếu cần khôi phục cảm biến về mặc định phần cứng:
 static axi_iic_dev_t g_iic_bus;
 static adt7410_dev_t g_temp_sensor;
 
+/* Public prototypes: normally placed in the application header
+ * (e.g. app_temp_monitor.h) so -Wmissing-prototypes is satisfied. */
+adt7410_status_t app_temp_monitor_init(void);
+adt7410_status_t app_temp_monitor_poll(int32_t * p_temp_mdegc,
+                                       bool * p_is_over_crit);
+
 adt7410_status_t app_temp_monitor_init(void)
 {
     adt7410_status_t result = ADT7410_OK;
-    axi_iic_status_t iic_status;
+    axi_iic_status_t iic_status = AXI_IIC_OK;
     adt7410_config_t const sensor_cfg =
     {
         .resolution   = ADT7410_RES_16BIT,
@@ -270,10 +286,25 @@ adt7410_status_t app_temp_monitor_poll(int32_t * p_temp_mdegc,
                                        bool * p_is_over_crit)
 {
     adt7410_status_t result = ADT7410_OK;
-    adt7410_sample_t sample;
-    adt7410_status_flags_t flags;
+    adt7410_sample_t sample =
+    {
+        .die_temp_mdegc   = 0,
+        .die_temp_q8_7    = 0,
+        .has_inline_flags = false,
+        .is_tcrit_active  = false,
+        .is_thigh_active  = false,
+        .is_tlow_active   = false
+    };
+    adt7410_status_flags_t flags =
+    {
+        .is_not_ready  = true,
+        .has_tcrit_flt = false,
+        .has_thigh_flt = false,
+        .has_tlow_flt  = false
+    };
 
-    if ((NULL == p_temp_mdegc) || (NULL == p_is_over_crit))
+    if ((NULL == p_temp_mdegc)
+        || (NULL == p_is_over_crit))
     {
         result = ADT7410_ERR_PARAM;
     }

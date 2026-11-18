@@ -2,9 +2,9 @@
  * @file    main.c
  * @brief   Reference application demonstrating ADT7410 setup, periodic
  *          10 ms polling mode, and hardware interrupt (INT pin) mode.
- * @req     LLR-IIC-002, LLR-ADT-001, LLR-ADT-002, LLR-ADT-003,
- *          LLR-ADT-004, LLR-ADT-005
- * @design  SDD-ADT-1.0, SDD-IIC-1.0
+ * @req     LLR-APP-001, LLR-APP-002, LLR-APP-003, LLR-APP-004,
+ *          LLR-APP-005
+ * @design  SDD-APP-1.0
  */
 
 #include <stdbool.h>
@@ -18,10 +18,15 @@
 #define APP_AXI_IIC_BASE_ADDR       ((uintptr_t)0x40800000U)
 
 /*
- * Poll budget per FIFO/bus wait for a 10 ms periodic task:
- * 5000 polls (~250..500 us on typical AXI4-Lite bus) exceeds the ~90 us
- * single-byte I2C transfer time at 100 kHz while guaranteeing that a stuck
- * bus times out in < 0.5 ms without overrunning the 10 ms task period.
+ * Poll budget P per FIFO / bus wait (timing analysis: SDD-APP-4, OI-08).
+ *  (1) No false timeout: P * t_poll_min must exceed the longest single
+ *      wait, a 2-byte register read (~37 SCL clocks + START / repeated
+ *      START / STOP set-up times) ~= 0.4 ms at 100 kHz.
+ *  (2) Period: a normal cycle is bounded by 15 * P polls and a recovery
+ *      cycle by 35 * P polls (analytic, every wait at its limit).
+ * t_poll (one ISR + one SR AXI4-Lite read) is target dependent and must be
+ * measured (OI-08). 5000 satisfies (1) only for t_poll >= 80 ns; increase
+ * it if the measured t_poll is shorter.
  */
 #define APP_IIC_TIMEOUT_POLLS       (5000U)
 
@@ -38,19 +43,21 @@
 
 /**
  * @brief   Application telemetry snapshot updated by the monitor examples.
- * @req     LLR-ADT-003
- * @design  SDD-ADT-1.11
+ * @req     LLR-APP-002, LLR-APP-003
+ * @design  SDD-APP-1.1
+ * @note    One temperature representation only (degC), written by both the
+ *          polling and the interrupt path, so the snapshot never mixes a
+ *          fresh value with a stale one.
  */
 typedef struct
 {
-    float    last_die_temp_degc;  /* Latest valid temperature in degC      */
-    int32_t  last_die_temp_mdegc; /* Latest valid temperature in mdegC     */
-    int16_t  last_die_temp_q8_7;  /* Latest valid temperature in Q8.7 degC */
-    uint32_t sample_count;        /* Number of valid samples acquired      */
-    uint32_t comm_error_count;    /* Number of I2C / sensor errors seen    */
-    bool     is_tcrit_tripped;    /* Latched or active TCRIT fault flag    */
-    bool     is_thigh_tripped;    /* Latched or active THIGH fault flag    */
-    bool     is_tlow_tripped;     /* Latched or active TLOW fault flag     */
+    float    last_die_temp_degc;  /* Latest valid die temp, degC,
+                                     -55.0..150.0 nominal               */
+    uint32_t sample_count;        /* Number of valid samples acquired    */
+    uint32_t comm_error_count;    /* Number of I2C / sensor errors seen  */
+    bool     is_tcrit_tripped;    /* Latched or active TCRIT fault flag  */
+    bool     is_thigh_tripped;    /* Latched or active THIGH fault flag  */
+    bool     is_tlow_tripped;     /* Latched or active TLOW fault flag   */
 } app_health_snapshot_t;
 
 /* Public ISR and entry-point prototypes (MISRA C:2012 Rule 8.4) */
@@ -65,24 +72,43 @@ static adt7410_status_t recover_bus_and_sensor(
 static adt7410_status_t poll_sensor_once(void);
 static adt7410_status_t run_polling_example(void);
 static adt7410_status_t service_int_alert(void);
+static adt7410_status_t service_pending_alert(void);
 static adt7410_status_t run_interrupt_example(void);
 
-/* Module-scope device contexts and telemetry (no stack buffers > 64 B) */
+/**
+ * @brief   AXI IIC HAL instance shared by every sensor on the bus.
+ * @req     LLR-APP-001
+ * @design  SDD-APP-1.2
+ */
 static axi_iic_dev_t g_iic_bus;
+
+/**
+ * @brief   ADT7410 device context (address 0x48).
+ * @req     LLR-APP-001
+ * @design  SDD-APP-1.2
+ */
 static adt7410_dev_t g_sensor;
+
+/**
+ * @brief   Latest telemetry published by the monitor examples.
+ * @req     LLR-APP-002, LLR-APP-003
+ * @design  SDD-APP-1.2
+ */
 static app_health_snapshot_t g_health_snapshot;
 
-/*
- * Volatile flag shared exclusively between adt7410_int_pin_isr() and task
- * context (C Coding Rules §9: ISR sets flag only; task performs I2C).
+/**
+ * @brief   Flag set by adt7410_int_pin_isr(), consumed in task context.
+ * @req     LLR-APP-003
+ * @design  SDD-APP-1.2
+ * @note    volatile: shared with the ISR (C Coding Rules §9).
  */
 static volatile bool g_is_int_alert_pending = false;
 
 
 /**
  * @brief       GPIO / External Interrupt ISR for the ADT7410 INT pin.
- * @req         LLR-ADT-002, LLR-ADT-003
- * @design      SDD-ADT-2.6
+ * @req         LLR-APP-003
+ * @design      SDD-APP-2.1
  * @note        ISR-safe. Deterministic O(1), no blocking loops, no I2C
  *              access inside ISR. Sets a volatile flag for deferred task
  *              processing per C Coding Rules §9.
@@ -97,9 +123,8 @@ void adt7410_int_pin_isr(void)
 /**
  * @brief       Application entry point running both Polling and Interrupt
  *              reference examples sequentially.
- * @req         LLR-IIC-002, LLR-ADT-001, LLR-ADT-002, LLR-ADT-003,
- *              LLR-ADT-004, LLR-ADT-005
- * @design      SDD-ADT-1.0, SDD-IIC-1.0
+ * @req         LLR-APP-005
+ * @design      SDD-APP-2.2
  * @return      0 on success, 1 if either example returned an error.
  * @note        Not ISR-safe. Called once at startup.
  */
@@ -136,14 +161,15 @@ int main(void)
 
 /**
  * @brief       Initialize AXI IIC HAL, ADT7410 sensor, and alarm setpoints.
- * @req         LLR-IIC-002, LLR-ADT-001, LLR-ADT-002
- * @design      SDD-IIC-2.1, SDD-ADT-2.1
+ * @req         LLR-APP-001
+ * @design      SDD-APP-3.1
  * @param[in]   event_mode  ADT7410_EVENT_COMPARATOR (polling) or
  *                          ADT7410_EVENT_INTERRUPT (latched INT pin).
- * @return      ADT7410_OK, ADT7410_ERR_PARAM, ADT7410_ERR_I2C_COMM,
- *              or ADT7410_ERR_DEV_ID.
+ * @return      ADT7410_OK, ADT7410_ERR_PARAM, ADT7410_ERR_STATE,
+ *              ADT7410_ERR_I2C_COMM, or ADT7410_ERR_DEV_ID.
  * @note        Not ISR-safe. Blocking (polled I2C).
- *              WCET bound: O(36 * APP_IIC_TIMEOUT_POLLS).
+ *              WCET bound: 35 * APP_IIC_TIMEOUT_POLLS polls
+ *              (adt7410_init 12 P + 3 setpoints 18 P + hysteresis 5 P).
  */
 static adt7410_status_t setup_bus_and_sensor(adt7410_event_mode_t event_mode)
 {
@@ -189,12 +215,12 @@ static adt7410_status_t setup_bus_and_sensor(adt7410_event_mode_t event_mode)
 
 /**
  * @brief       Program THIGH, TLOW, TCRIT setpoints and THYST hysteresis.
- * @req         LLR-ADT-004, LLR-ADT-005
- * @design      SDD-ADT-2.9, SDD-ADT-2.11
+ * @req         LLR-APP-001
+ * @design      SDD-APP-3.2
  * @return      ADT7410_OK, ADT7410_ERR_PARAM, ADT7410_ERR_STATE,
  *              or ADT7410_ERR_I2C_COMM.
  * @note        Not ISR-safe. Blocking (4 polled I2C write transactions).
- *              WCET bound: O(23 * APP_IIC_TIMEOUT_POLLS).
+ *              WCET bound: 23 * APP_IIC_TIMEOUT_POLLS polls.
  */
 static adt7410_status_t configure_alarm_thresholds(void)
 {
@@ -241,13 +267,13 @@ static adt7410_status_t configure_alarm_thresholds(void)
 
 /**
  * @brief       Recover AXI IIC controller and ADT7410 after a bus/NACK fault.
- * @req         LLR-IIC-002, LLR-ADT-001
- * @design      SDD-IIC-2.1, SDD-ADT-2.1
+ * @req         LLR-APP-002, LLR-APP-003
+ * @design      SDD-APP-3.3
  * @param[in]   event_mode  Active event mode to restore on the sensor.
  * @return      ADT7410_OK on successful recovery, error code otherwise.
- * @note        Not ISR-safe. Blocking. Invoked when a periodic poll or alert
- *              read returns ADT7410_ERR_I2C_COMM or ADT7410_ERR_STATE.
- *              WCET bound: O(36 * APP_IIC_TIMEOUT_POLLS).
+ * @note        Not ISR-safe. Blocking. Runs in its own cycle, never in the
+ *              same cycle as the failed poll / alert service.
+ *              WCET bound: 35 * APP_IIC_TIMEOUT_POLLS polls.
  */
 static adt7410_status_t recover_bus_and_sensor(adt7410_event_mode_t event_mode)
 {
@@ -262,14 +288,13 @@ static adt7410_status_t recover_bus_and_sensor(adt7410_event_mode_t event_mode)
 
 /**
  * @brief       Execute one non-hanging 10 ms polling step.
- * @req         LLR-ADT-003
- * @design      SDD-ADT-2.6, SDD-ADT-2.13
+ * @req         LLR-APP-002
+ * @design      SDD-APP-3.4
  * @return      ADT7410_OK or error status from status/temperature read.
- * @note        Uses adt7410_read_temp_degc() to read temperature directly
- *              as a float in degC without needing an intermediate sample
- *              struct or resolution-dependent scaling in the application.
- *              Not ISR-safe. Blocking.
- *              WCET bound: O(15 * APP_IIC_TIMEOUT_POLLS).
+ * @note        Uses adt7410_read_temp_degc() so the application needs no
+ *              resolution-dependent scaling. The snapshot is updated only
+ *              when both reads succeed. Not ISR-safe. Blocking.
+ *              WCET bound: 15 * APP_IIC_TIMEOUT_POLLS polls.
  */
 static adt7410_status_t poll_sensor_once(void)
 {
@@ -287,24 +312,24 @@ static adt7410_status_t poll_sensor_once(void)
 
     if (ADT7410_OK == result)
     {
-        g_health_snapshot.is_tcrit_tripped = status_flags.has_tcrit_flt;
-        g_health_snapshot.is_thigh_tripped = status_flags.has_thigh_flt;
-        g_health_snapshot.is_tlow_tripped  = status_flags.has_tlow_flt;
-
         result = adt7410_read_temp_degc(&g_sensor, &die_temp_degc);
-        if (ADT7410_OK == result)
-        {
-            g_health_snapshot.last_die_temp_degc = die_temp_degc;
-            g_health_snapshot.sample_count++;
-        }
-        else
-        {
-            /* Temperature read failed; retain previous sample */
-        }
     }
     else
     {
         /* Status read failed; retain previous snapshot */
+    }
+
+    if (ADT7410_OK == result)
+    {
+        g_health_snapshot.last_die_temp_degc = die_temp_degc;
+        g_health_snapshot.is_tcrit_tripped = status_flags.has_tcrit_flt;
+        g_health_snapshot.is_thigh_tripped = status_flags.has_thigh_flt;
+        g_health_snapshot.is_tlow_tripped  = status_flags.has_tlow_flt;
+        g_health_snapshot.sample_count++;
+    }
+    else
+    {
+        /* Read failed; retain previous snapshot */
     }
 
     return result;
@@ -313,38 +338,57 @@ static adt7410_status_t poll_sensor_once(void)
 
 /**
  * @brief       Example 1: Periodic 10 ms Polling workflow (Comparator mode).
- * @req         LLR-IIC-002, LLR-ADT-001, LLR-ADT-002, LLR-ADT-003,
- *              LLR-ADT-004, LLR-ADT-005
- * @design      SDD-ADT-2.1, SDD-ADT-2.6, SDD-ADT-2.8
+ * @req         LLR-APP-002, LLR-APP-004
+ * @design      SDD-APP-3.5, SDD-APP-4
  * @return      ADT7410_OK if setup and polling cycles succeed, error otherwise.
- * @note        In production firmware, the body of the for-loop runs once
- *              per 10 ms RTOS task wakeup or timer tick. If the slave does
- *              not ACK, poll_sensor_once() returns ADT7410_ERR_I2C_COMM
- *              within APP_IIC_TIMEOUT_POLLS and triggers recovery.
- *              WCET bound: O(APP_POLL_EXAMPLE_CYCLES * 51 * TIMEOUT_POLLS).
+ * @note        Each loop iteration stands for one 10 ms RTOS task wakeup.
+ *              A failed poll schedules recovery for the NEXT cycle, so one
+ *              cycle never does poll + recovery. The example ends with the
+ *              poll error if a recovery is still pending after the last cycle.
+ *              WCET per cycle: max(15, 35) * APP_IIC_TIMEOUT_POLLS polls.
  */
 static adt7410_status_t run_polling_example(void)
 {
     adt7410_status_t result = ADT7410_OK;
+    adt7410_status_t poll_status = ADT7410_OK;
     uint32_t poll_cycle_idx = 0U;
+    bool is_recovery_pending = false;
 
     result = setup_bus_and_sensor(ADT7410_EVENT_COMPARATOR);
 
-    for (poll_cycle_idx = 0U;
-         (poll_cycle_idx < APP_POLL_EXAMPLE_CYCLES)
-         && (ADT7410_OK == result);
-         poll_cycle_idx++)
+    /* Bounded by APP_POLL_EXAMPLE_CYCLES */
+    while ((poll_cycle_idx < APP_POLL_EXAMPLE_CYCLES)
+           && (ADT7410_OK == result))
     {
-        result = poll_sensor_once();
-        if (ADT7410_OK != result)
+        if (is_recovery_pending)
         {
-            /* Slave NACK or bus timeout: attempt bounded recovery */
+            /* Recovery slot: re-initialise bus and sensor */
             result = recover_bus_and_sensor(ADT7410_EVENT_COMPARATOR);
+            is_recovery_pending = false;
         }
         else
         {
-            /* Sample acquired; 10 ms RTOS delay would occur here */
+            poll_status = poll_sensor_once();
+            if (ADT7410_OK != poll_status)
+            {
+                /* Slave NACK or bus timeout: recover in the next cycle */
+                is_recovery_pending = true;
+            }
+            else
+            {
+                /* Sample acquired; 10 ms RTOS delay would occur here */
+            }
         }
+        poll_cycle_idx++;
+    }
+
+    if (is_recovery_pending)
+    {
+        result = poll_status;
+    }
+    else
+    {
+        /* No unrecovered fault */
     }
 
     return result;
@@ -353,27 +397,19 @@ static adt7410_status_t run_polling_example(void)
 
 /**
  * @brief       Bottom-half handler servicing a latched ADT7410 INT pin alert.
- * @req         LLR-ADT-002, LLR-ADT-003
- * @design      SDD-ADT-2.6, SDD-ADT-2.8
+ * @req         LLR-APP-003
+ * @design      SDD-APP-3.6
  * @return      ADT7410_OK or error status from I2C read.
- * @note        Executed in task context after adt7410_int_pin_isr() sets
- *              g_is_int_alert_pending. Reading Status Register 0x02 clears
- *              the latched TLOW/THIGH/TCRIT flags and releases the INT pin
- *              (Datasheet p. 14). Not ISR-safe. Blocking.
- *              WCET bound: O(15 * APP_IIC_TIMEOUT_POLLS).
+ * @note        Reading Status Register 0x02 clears the latched
+ *              TLOW/THIGH/TCRIT flags and releases the INT pin
+ *              (Datasheet p. 14). The snapshot is updated only when both
+ *              reads succeed. Not ISR-safe. Blocking.
+ *              WCET bound: 15 * APP_IIC_TIMEOUT_POLLS polls.
  */
 static adt7410_status_t service_int_alert(void)
 {
     adt7410_status_t result = ADT7410_OK;
-    adt7410_sample_t sample =
-    {
-        .die_temp_mdegc   = 0,
-        .die_temp_q8_7    = 0,
-        .has_inline_flags = false,
-        .is_tcrit_active  = false,
-        .is_thigh_active  = false,
-        .is_tlow_active   = false
-    };
+    float die_temp_degc = 0.0f;
     adt7410_status_flags_t status_flags =
     {
         .is_not_ready  = false,
@@ -383,18 +419,11 @@ static adt7410_status_t service_int_alert(void)
     };
 
     /* 1. Read the temperature that caused the threshold excursion */
-    result = adt7410_read_temperature(&g_sensor, &sample);
+    result = adt7410_read_temp_degc(&g_sensor, &die_temp_degc);
 
     if (ADT7410_OK == result)
     {
-        g_health_snapshot.last_die_temp_mdegc = sample.die_temp_mdegc;
-        g_health_snapshot.last_die_temp_q8_7  = sample.die_temp_q8_7;
-        g_health_snapshot.sample_count++;
-
-        /*
-         * 2. Read Status Register (0x02) to identify which threshold tripped
-         *    AND unlatch the ADT7410 INT output pin in Interrupt mode.
-         */
+        /* 2. Identify the tripped threshold AND unlatch the INT output */
         result = adt7410_read_status(&g_sensor, &status_flags);
     }
     else
@@ -404,13 +433,56 @@ static adt7410_status_t service_int_alert(void)
 
     if (ADT7410_OK == result)
     {
+        g_health_snapshot.last_die_temp_degc = die_temp_degc;
         g_health_snapshot.is_tcrit_tripped = status_flags.has_tcrit_flt;
         g_health_snapshot.is_thigh_tripped = status_flags.has_thigh_flt;
         g_health_snapshot.is_tlow_tripped  = status_flags.has_tlow_flt;
+        g_health_snapshot.sample_count++;
     }
     else
     {
-        /* Keep fault flags unchanged on communication error */
+        /* Keep previous snapshot on communication error */
+    }
+
+    return result;
+}
+
+
+/**
+ * @brief       Consume the ISR flag and service the alert if one is pending.
+ * @req         LLR-APP-003
+ * @design      SDD-APP-3.8
+ * @return      ADT7410_OK (no alert, or alert serviced) or the error from
+ *              service_int_alert().
+ * @note        Single volatile read into a local (C Coding Rules §5). The
+ *              flag is cleared before the I2C service so an INT edge that
+ *              arrives during the service is not lost. If the service
+ *              fails, the INT pin stays latched (no new edge will come),
+ *              so the flag is set again to re-service after recovery.
+ *              Not ISR-safe. WCET bound: 15 * APP_IIC_TIMEOUT_POLLS polls.
+ */
+static adt7410_status_t service_pending_alert(void)
+{
+    adt7410_status_t result = ADT7410_OK;
+    bool const is_alert_pending = g_is_int_alert_pending;
+
+    if (is_alert_pending)
+    {
+        g_is_int_alert_pending = false;
+        result = service_int_alert();
+
+        if (ADT7410_OK != result)
+        {
+            g_is_int_alert_pending = true;
+        }
+        else
+        {
+            /* Alert serviced; INT pin released by the Status read */
+        }
+    }
+    else
+    {
+        /* No interrupt pending; CPU is free for other tasks */
     }
 
     return result;
@@ -419,30 +491,27 @@ static adt7410_status_t service_int_alert(void)
 
 /**
  * @brief       Example 2: Interrupt-driven workflow (Latched Interrupt mode).
- * @req         LLR-IIC-002, LLR-ADT-001, LLR-ADT-002, LLR-ADT-003,
- *              LLR-ADT-004, LLR-ADT-005
- * @design      SDD-ADT-2.1, SDD-ADT-2.6, SDD-ADT-2.8
+ * @req         LLR-APP-003, LLR-APP-004
+ * @design      SDD-APP-3.7, SDD-APP-4
  * @return      ADT7410_OK on success, error status otherwise.
- * @note        Configures ADT7410 in ADT7410_EVENT_INTERRUPT mode. When the
- *              hardware INT pin asserts, the GPIO controller invokes
- *              adt7410_int_pin_isr(), which sets g_is_int_alert_pending.
- *              This task loop detects the flag, clears it, and performs the
- *              I2C read in task context to unlatch the interrupt.
- *              WCET bound: O(APP_INTR_EXAMPLE_CYCLES * 51 * TIMEOUT_POLLS).
+ * @note        When the INT pin asserts, adt7410_int_pin_isr() sets the
+ *              flag; this task loop services it. A failed service schedules
+ *              recovery for the NEXT cycle (same rule as the polling
+ *              example). WCET per cycle: max(15, 35) * TIMEOUT_POLLS polls.
  */
 static adt7410_status_t run_interrupt_example(void)
 {
     adt7410_status_t result = ADT7410_OK;
+    adt7410_status_t alert_status = ADT7410_OK;
     uint32_t cycle_idx = 0U;
-    bool is_alert_pending = false;
+    bool is_recovery_pending = false;
 
     g_is_int_alert_pending = false;
     result = setup_bus_and_sensor(ADT7410_EVENT_INTERRUPT);
 
-    for (cycle_idx = 0U;
-         (cycle_idx < APP_INTR_EXAMPLE_CYCLES)
-         && (ADT7410_OK == result);
-         cycle_idx++)
+    /* Bounded by APP_INTR_EXAMPLE_CYCLES */
+    while ((cycle_idx < APP_INTR_EXAMPLE_CYCLES)
+           && (ADT7410_OK == result))
     {
         if (APP_SIMULATED_IRQ_CYCLE == cycle_idx)
         {
@@ -454,27 +523,34 @@ static adt7410_status_t run_interrupt_example(void)
             /* Normal cycle: ISR only fires when hardware asserts INT */
         }
 
-        /* Single volatile read into local variable (C Coding Rules §5) */
-        is_alert_pending = g_is_int_alert_pending;
-
-        if (is_alert_pending)
+        if (is_recovery_pending)
         {
-            g_is_int_alert_pending = false;
-            result = service_int_alert();
-
-            if (ADT7410_OK != result)
-            {
-                result = recover_bus_and_sensor(ADT7410_EVENT_INTERRUPT);
-            }
-            else
-            {
-                /* Alert serviced and INT pin unlatched */
-            }
+            result = recover_bus_and_sensor(ADT7410_EVENT_INTERRUPT);
+            is_recovery_pending = false;
         }
         else
         {
-            /* No interrupt pending; CPU is free for other tasks */
+            alert_status = service_pending_alert();
+            if (ADT7410_OK != alert_status)
+            {
+                /* INT stays latched; recover, then re-service next time */
+                is_recovery_pending = true;
+            }
+            else
+            {
+                /* Alert serviced (or none pending) */
+            }
         }
+        cycle_idx++;
+    }
+
+    if (is_recovery_pending)
+    {
+        result = alert_status;
+    }
+    else
+    {
+        /* No unrecovered fault */
     }
 
     return result;

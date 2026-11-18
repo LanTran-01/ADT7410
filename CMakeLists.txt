@@ -125,3 +125,31 @@ target_include_directories(test_integration PRIVATE
 )
 target_link_libraries(test_integration PRIVATE adt7410_driver)
 add_test(NAME test_integration COMMAND test_integration)
+
+# Application test: src/main.c with main() renamed to app_main() (test build
+# only), linked with the real driver and the mock HAL. An OBJECT library keeps
+# the rename away from both test_app.c and the adt7410_app_example target.
+add_library(app_under_test OBJECT
+    src/main.c
+)
+target_include_directories(app_under_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_definitions(app_under_test PRIVATE main=app_main)
+
+add_executable(test_app
+    tests/test_app.c
+    tests/mock_axi_iic.c
+    src/adt7410_driver.c
+    $<TARGET_OBJECTS:app_under_test>
+)
+target_include_directories(test_app PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+)
+if(ENABLE_COVERAGE AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(app_under_test PRIVATE -O0 -g --coverage)
+    target_compile_options(test_app PRIVATE -O0 -g --coverage)
+    target_link_options(test_app PRIVATE --coverage)
+endif()
+add_test(NAME test_app COMMAND test_app)

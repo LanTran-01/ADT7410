@@ -161,11 +161,17 @@ try {
 
     & gcc @TestFlags --coverage (Join-Path $TestDir "test_integration.c") "adt7410_driver.o" "axi_iic_hal.o" -o "test_integration.exe"
     if ($LASTEXITCODE -ne 0) { throw "Failed linking test_integration.exe" }
+
+    # Application under test: main() renamed to app_main() in the TEST build only
+    & gcc @TestFlags --coverage "-Dmain=app_main" -c (Join-Path $SrcDir "main.c") -o "main.o"
+    if ($LASTEXITCODE -ne 0) { throw "Failed compiling main.c (test build)" }
+    & gcc @TestFlags --coverage (Join-Path $TestDir "test_app.c") "main.o" "adt7410_driver.o" "mock_axi_iic.o" -o "test_app.exe"
+    if ($LASTEXITCODE -ne 0) { throw "Failed linking test_app.exe" }
     Write-Host "[PASS] build"
 
     Write-Host ""
     Write-Host "=== 3. Run test suites ==="
-    foreach ($Suite in @("test_adt7410_driver", "test_axi_iic_hal", "test_integration")) {
+    foreach ($Suite in @("test_adt7410_driver", "test_axi_iic_hal", "test_integration", "test_app")) {
         $LogPath = "$Suite.log"
         & ".\$Suite.exe" > $LogPath 2>&1
         $Rc = $LASTEXITCODE
@@ -177,7 +183,7 @@ try {
     Write-Host "=== 4. Structural coverage (gcov: statement + branch) ==="
     $GcovCmd = Get-Command gcov -ErrorAction SilentlyContinue
     if ($GcovCmd) {
-        foreach ($Src in $Sources) {
+        foreach ($Src in $StaticSources) {
             $BaseName = [System.IO.Path]::GetFileNameWithoutExtension($Src)
             $GcovOut = & gcov -b -c -o . (Join-Path $SrcDir $Src) 2>&1
             $GcovOut | Out-File -FilePath "gcov_$BaseName.log" -Encoding utf8
@@ -192,7 +198,7 @@ try {
     $TidyCmd = Get-Command clang-tidy -ErrorAction SilentlyContinue
     if ($TidyCmd) {
         $Checks = '-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,readability-braces-around-statements,readability-else-after-return,-misc-include-cleaner,-bugprone-easily-swappable-parameters'
-        foreach ($Src in $Sources) {
+        foreach ($Src in $StaticSources) {
             $BaseName = [System.IO.Path]::GetFileNameWithoutExtension($Src)
             $TidyLog = "tidy_$BaseName.log"
             & clang-tidy "-checks=$Checks" (Join-Path $SrcDir $Src) -- -std=c99 "-I$IncDir" > $TidyLog 2>&1

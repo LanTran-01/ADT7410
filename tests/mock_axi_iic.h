@@ -10,6 +10,7 @@
 #ifndef MOCK_AXI_IIC_H
 #define MOCK_AXI_IIC_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "axi_iic_hal.h"
@@ -41,6 +42,9 @@ typedef struct
     uint32_t         xfer_count;           /* Transactions since reset     */
     mock_xfer_t      log[MOCK_LOG_DEPTH];  /* Ring of recent transactions  */
     uint32_t         fail_on_xfer;         /* 1-based index, 0 = never     */
+    uint32_t         fail_xfer_count;      /* Consecutive failures, 0 = 1  */
+    bool             is_fail_reg_enabled;  /* Fail every read of fail_reg  */
+    uint8_t          fail_reg_addr;        /* Register whose reads fail    */
     axi_iic_status_t fail_status;          /* Status returned on failure   */
 } mock_iic_t;
 

@@ -9,12 +9,12 @@ Layer (HAL), designed to meet **MISRA C:2012**, **BARR-C:2018**, and
 
 ```text
 +------------------------------------------------------+
-|              Application / Health Monitor            |
+| Application / Health Monitor  (src/main.c)           |
 +------------------------------------------------------+
-            | adt7410_* API  (mdegC, Q8.7, flags)
+            | adt7410_* API  (float degC, mdegC, Q8.7, flags)
             v
 +------------------------------------------------------+
-| ADT7410 Driver  (include/ & src/adt7410_driver.*)      |
+| ADT7410 Driver  (include/ & src/adt7410_driver.*)    |
 +------------------------------------------------------+
             | axi_iic_write_bytes / axi_iic_write_read_bytes
             v
@@ -34,7 +34,7 @@ Layer (HAL), designed to meet **MISRA C:2012**, **BARR-C:2018**, and
 - `src/` — Flight C99 implementations (`axi_iic_hal.c`, `adt7410_driver.c`) and
   reference application entry point (`main.c` with Polling & Interrupt examples).
 - `tests/` — Host unit/integration test suites (`test_axi_iic_hal.c`,
-  `test_adt7410_driver.c`, `test_integration.c`), mocks/register model
+  `test_adt7410_driver.c`, `test_integration.c`, `test_app.c`), mocks/register model
   (`mock_axi_iic.c/.h`, `regmodel.h`, `test_harness.h`), and test runners
   (`run_tests.sh`, `run_tests.ps1`).
 - `docs/` — Requirements, design, coding standard, usage guide, verification
@@ -91,5 +91,5 @@ make coverage
 
 ## Open Items
 
-Track unresolved certification/hardware integration items (`OI-01`..`OI-06`) in
+Track unresolved certification/hardware integration items (`OI-01`..`OI-08`) in
 [docs/OPEN_ITEMS.md](docs/OPEN_ITEMS.md).
